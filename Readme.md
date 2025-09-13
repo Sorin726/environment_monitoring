@@ -1,0 +1,2 @@
+Environment monitoring application using Raspberry Pi Pico W
+The project uses the bsec proprietary library from Bosh. In order to use it you need to download it from the bosh website. Because is a proprietary library it not included in the project and an environment variable: `BSEC_PATH`  is used to set the path to the library
