@@ -12,7 +12,10 @@
 #define I2C_SCL 3
 #define BME68X_I2C_ADDRESS 0x77
 
-
+uint64_t get_time_stamp_ns() {
+    // Return current time in nanoseconds
+    return time_us_64()*1000;
+}
 
 int main()
 {
@@ -71,6 +74,33 @@ int main()
     printf("Current config - Humidity OS: %d, Pressure OS: %d, Temperature OS: %d, Filter: %d\n",
            current_config.os_hum, current_config.os_pres, current_config.os_temp, current_config.filter);
 
+    // Create a BSEC subscription for the required outputs
+    bsec_sensor_configuration_t sensor_config[9];
+    uint8_t n_sensors = 9;
+
+    sensor_config[0].sensor_id = BSEC_OUTPUT_RAW_TEMPERATURE;
+    sensor_config[0].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[1].sensor_id = BSEC_OUTPUT_RAW_HUMIDITY;
+    sensor_config[1].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[2].sensor_id = BSEC_OUTPUT_RAW_PRESSURE;
+    sensor_config[2].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[3].sensor_id = BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE;
+    sensor_config[3].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[4].sensor_id = BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY;
+    sensor_config[4].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[5].sensor_id = BSEC_OUTPUT_IAQ;
+    sensor_config[5].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[6].sensor_id = BSEC_OUTPUT_STATIC_IAQ;
+    sensor_config[6].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[7].sensor_id = BSEC_OUTPUT_CO2_EQUIVALENT;
+    sensor_config[7].sample_rate = BSEC_SAMPLE_RATE_LP;
+    sensor_config[8].sensor_id = BSEC_OUTPUT_BREATH_VOC_EQUIVALENT;
+    sensor_config[8].sample_rate = BSEC_SAMPLE_RATE_LP;
+
+    bsec_sensor_configuration_t required_sensor_settings[BSEC_MAX_PHYSICAL_SENSOR];
+    uint8_t n_required_sensor_settings = BSEC_MAX_PHYSICAL_SENSOR;
+    bsec_update_subscription(sensor_config, n_sensors, required_sensor_settings, &n_required_sensor_settings);
+
     while (true) {
         // Set the device to forced mode to trigger a measurement
         int8_t set_op_res = bme68x_set_op_mode(BME68X_FORCED_MODE, &dev);
@@ -81,14 +111,64 @@ int main()
         // Wait for the measurement to complete
         dev.delay_us(bme68x_get_meas_dur(BME68X_FORCED_MODE, &config, &dev), dev.intf_ptr);
 
-
         // Read the data
         int8_t get_data_res = bme68x_get_data(BME68X_FORCED_MODE, &meas_data, &n_data, &dev);
-        printf("Get data res: %d\n", get_data_res);
-        printf("Chip ID: %x\n", dev.chip_id);
-        printf("Status: %d\n", meas_data.status);
-        printf("Temperature: %.2f C, Pressure: %.2f Pa, Humidity: %.2f %%rH, Gas Resistance: %u Ohm\n",
-            meas_data.temperature, meas_data.pressure, meas_data.humidity, meas_data.gas_resistance);
-        sleep_ms(1000);
+
+        bsec_input_t inputs[4];
+        uint8_t n_inputs = 4;
+        bsec_output_t outputs[10];
+        uint8_t n_outputs = 10;
+
+        inputs[0].sensor_id = BSEC_INPUT_TEMPERATURE;
+        inputs[0].signal = meas_data.temperature;
+        inputs[0].time_stamp = get_time_stamp_ns();
+        inputs[1].sensor_id = BSEC_INPUT_HUMIDITY;
+        inputs[1].signal = meas_data.humidity;
+        inputs[1].time_stamp = get_time_stamp_ns();
+        inputs[2].sensor_id = BSEC_INPUT_PRESSURE;
+        inputs[2].signal = meas_data.pressure;
+        inputs[2].time_stamp = get_time_stamp_ns();
+        inputs[3].sensor_id = BSEC_INPUT_GASRESISTOR;
+        inputs[3].signal = (float)meas_data.gas_resistance;
+        inputs[3].time_stamp = get_time_stamp_ns();
+
+        bsec_library_return_t do_step_status = bsec_do_steps(inputs, n_inputs, outputs, &n_outputs);
+
+        if (do_step_status == BSEC_OK) {
+            for (uint8_t i = 0; i < n_outputs; i++) {
+                switch (outputs[i].sensor_id) {
+                    case BSEC_OUTPUT_RAW_TEMPERATURE:
+                        printf("Raw Temperature: %.2f C, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_RAW_HUMIDITY:
+                        printf("Raw Humidity: %.2f %%rH, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_RAW_PRESSURE:
+                        printf("Raw Pressure: %.2f Pa, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE:
+                        printf("Heat Compensated Temperature: %.2f C, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY:
+                        printf("Heat Compensated Humidity: %.2f %%rH, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_IAQ:
+                        printf("IAQ: %.2f, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_STATIC_IAQ:
+                        printf("Static IAQ: %.2f, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_CO2_EQUIVALENT:
+                        printf("CO2 Equivalent: %.2f ppm, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                    case BSEC_OUTPUT_BREATH_VOC_EQUIVALENT:
+                        printf("Breath VOC Equivalent: %.2f ppm, Accuracy: %d\n", outputs[i].signal, outputs[i].accuracy);
+                        break;
+                }
+                sleep_ms(1000);
+            }
+        } else {
+            printf("BSEC do steps error: %d\n", do_step_status);
+        }
     }
 }
