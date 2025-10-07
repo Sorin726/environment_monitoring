@@ -40,7 +40,8 @@
     "files.associations": {
         "i2c.h": "c",
         "bme68x_port.h": "c",
-        "bme68x.h": "c"
+        "bme68x.h": "c",
+        "bsec_interface.h": "c"
     },
     "cortex-debug.variableUseNaturalFormat": true
 }
